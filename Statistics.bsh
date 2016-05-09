@@ -1,0 +1,100 @@
+:
+
+init() {
+	[ ! -d analysis ] && mkdir analysis
+	cd analysis
+	[ `ls -l | wc -l` > 0 ] && rm *
+	cd ..
+	[ ! -d downloads ] && mkdir downloads
+	cd downloads
+	[ `ls -l | wc -l` > 0 ] && rm *
+	cd ..
+}
+
+remove() {
+  cd downloads
+  rm *
+}
+
+analyseLinks() {
+	
+	sed 's/'\>\<'/\>\'$'\n\</g' index.html > cleaned.html # Préparer le fichier html pour l'analyse si les balises sont collées côte à côte
+	grep '<a' cleaned.html > anchor.txt
+	grep -o "href='h.*'" < anchor.txt > href.txt
+	grep -o 'href="h.*"' < anchor.txt >> href.txt
+	rm anchor.txt
+	touch hrefCleaned1.txt
+	
+	while read p; do
+		set -- $p
+		echo $1
+	done < href.txt >> hrefCleaned1.txt
+	
+	rm href.txt
+	sed 's/>/ /g' hrefCleaned1.txt > hrefCleaned2.txt
+	rm hrefCleaned1.txt
+	touch hrefCleaned3.txt
+	
+	while read p; do
+		set -- $p
+		echo $1
+	done < hrefCleaned2.txt >> hrefCleaned3.txt
+	
+	rm hrefCleaned2.txt
+	touch links.txt
+	grep -o "http.*[^\'\"]" < hrefCleaned3.txt > links.txt
+	rm hrefCleaned3.txt
+	sort -u links.txt > uniqueLinks.txt
+	rm links.txt
+	grep 'centralop' < uniqueLinks.txt > sameDomain.txt
+	rm uniqueLinks.txt
+	cat sameDomain.txt > linksMasterListUnsorted.txt
+	sort -u linksMasterListUnsorted >> linksMasterListSorted.txt
+	
+}
+
+downloadChildren() {
+
+	cat $URL > temp1
+	sed 's/http.\/\///' temp1 > temp2
+	sed 's/\./ /' temp2 > temp1
+	set -- $( head -1 temp1 )
+	FILENAME=`echo $1`
+	curl $URL > $FILENAME.html
+	
+	touch linksMasterListUnsorted.txt
+	touch linksMasterListSorted.txt
+	
+	if [ $LEVEL -gt 0 ]; then
+		for i in $(seq 1 $LEVEL); do
+			analyseLinks
+			while read p; do
+				URL=$p
+			done < uniqueLinks.txt
+		done
+	fi
+}
+
+download() {
+	[ ! -d downloads ] && mkdir downloads
+	cd downloads
+	downloadChildren # > ET < SONT DES CARACTERES SPECIAUX!
+}
+
+# analyse() {
+
+# }
+
+# create() {
+
+# }
+
+
+case $1 in
+-z) init;;
+-c) remove;;
+-[0-9]) LEVEL=`echo $1 | tail -c 2`; URL=`echo $2`; download;;
+-a) analyse;;
+-h) create;;
+-l) analyseLinks;;
+esac
