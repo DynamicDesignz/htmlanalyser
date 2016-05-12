@@ -9,6 +9,7 @@ init() {
 	cd downloads
 	[ `ls -l | wc -l` > 0 ] && rm *
 
+	touch links.txt
 	touch linksMasterListUnsorted.txt
 	touch linksMasterListSorted.txt
 	touch visitedLinks.txt
@@ -25,40 +26,34 @@ analyseLinks() {
 	
 	sed 's/'\>\<'/\>\'$'\n\</g' $FILENAME > cleaned.html # Seperate tags in poorly compiled html code
 	grep '<a' cleaned.html > anchor.txt
-
-	grep -o "href='h.*'" < anchor.txt >q href.txt 
-	grep -o 'href="h.*"' < anchor.txt >> href.txt # Two ways of inserting a link
-	rm anchor.txt
-	touch hrefCleaned1.txt
 	
+	grep -o "href='h.*'" < anchor.txt > href.txt 
+	grep -o 'href="h.*"' < anchor.txt >> href.txt # Two ways of inserting a link
+	
+	touch hrefCleaned1.txt
 	while read p; do
 		set -- $p
 		echo $1
 	done < href.txt >> hrefCleaned1.txt
 	
-	rm href.txt
 	sed 's/>/ /g' hrefCleaned1.txt > hrefCleaned2.txt
 	rm hrefCleaned1.txt
-	touch hrefCleaned3.txt
 	
+	touch hrefCleaned3.txt
 	while read p; do
 		set -- $p
 		echo $1
 	done < hrefCleaned2.txt >> hrefCleaned3.txt
 	
-	rm hrefCleaned2.txt
-	touch links.txt
+	
 	grep -o "http.*[^\'\"]" < hrefCleaned3.txt > links.txt
 	rm hrefCleaned3.txt
-
+	
 	sort -u links.txt > uniqueLinks.txt
-	rm links.txt
 	grep $DOMAIN < uniqueLinks.txt > sameDomain.txt
-	rm uniqueLinks.txt
 	
 	cat sameDomain.txt > linksMasterListUnsorted.txt
-	sort -u linksMasterListUnsorted > linksMasterListSorted.txt
-	LINKCOUNT=$( wc -l linksMasterListSorted.txt )
+	sort -u linksMasterListUnsorted.txt > linksMasterListSorted.txt
 }
 
 downloadChildren() {
@@ -66,23 +61,22 @@ downloadChildren() {
 	for i in $(seq 1 $LEVEL); do
 	
 		CHILD=`echo $i` # Depth of download
-		PARENT=`expr $LEVELAUX - 1` # Depth of analysis
+		PARENT=`expr $CHILD - 1` # Depth of analysis
+		ITERATION=0
 		
-		for j in $DOMAIN-$PARENT-*.html;  do
+		for j in $DOMAIN_$PARENT_*.html;  do
 			
 			FILENAME=`echo $j`
 			analyseLinks
 			
-			ITERATION=0
-
 			while read url; do
 			
 				URL=`echo $url`
-				if [ `grep $URL < visitedLinks.txt` == "" ]; then
+				if [ $( grep ^$URL$ < visitedLinks.txt ) = "" ]; then
 					ITERATION=`expr $ITERATION + 1`
 					downloadPage
 				fi
-				cat $URL >> visitedLinks.txt
+				echo $URL >> visitedLinks.txt
 				
 			done < linksMasterListSorted.txt
 			
@@ -93,28 +87,28 @@ downloadChildren() {
 
 downloadPage() {
 
-	curl $URL > $DOMAIN-$CHILD-$ITERATION.html
+	curl $URL > ${DOMAIN}_${CHILD}_${ITERATION}.html
 
 }
 
 downloadIndex() {
-
+	touch temp1
 	# Extract domain name
-	cat $URL > temp1
+	echo $URL > temp1
 	HTTP="http.\/\/"
-	sed 's/${HTTP}//' temp1 > temp2
+	sed 's/'${HTTP}'//' temp1 > temp2
 	sed 's/\./ /' temp2 > temp1
 	set -- $( head -1 temp1 )
-	DOMAIN=`echo $1` # Define domain for analysis
+	DOMAIN=$( echo $1 ) # Define domain for analysis
 	rm temp1 temp2
 
-	curl $URL > $DOMAIN-$LEVEL-0.html
+	curl $URL > ${DOMAIN}_0_0.html
 
 }
 
 downloadManager() {
-
-	cat $URL >> linksToVisit.txt;
+	[ ! -d downloads ] && mkdir downloads
+	cd downloads
 	downloadIndex
 	[ $LEVEL -gt 0 ] && downloadChildren
 }
@@ -131,7 +125,7 @@ downloadManager() {
 case $1 in
 -z) init;;
 -c) remove;;
--[0-9]) LEVEL=`echo $1 | tail -c 2`; URL=`echo $2`; downloadManager;;
+-[0-9]) LEVEL=$( echo $1 | tail -c 2 ); URL=`echo $2`; downloadManager;;
 -a) analyse;;
 -h) create;;
 -l) analyseLinks;;
