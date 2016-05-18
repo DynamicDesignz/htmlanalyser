@@ -9,11 +9,6 @@ init() {
 	cd downloads
 	[ `ls -l | wc -l` > 0 ] && rm *
 
-	touch links.txt
-	touch linksMasterListUnsorted.txt
-	touch linksMasterListSorted.txt
-	touch visitedLinks.txt
-
 	cd ..
 }
 
@@ -23,7 +18,7 @@ remove() {
 }
 
 analyseLinks() {
-	
+
 	sed 's/'\>\<'/\>\'$'\n\</g' $FILENAME > cleaned.html # Seperate tags in poorly compiled html code
 	grep '<a' cleaned.html > anchor.txt
 	
@@ -35,7 +30,6 @@ analyseLinks() {
 		set -- $p
 		echo $1
 	done < href.txt >> hrefCleaned1.txt
-	
 	sed 's/>/ /g' hrefCleaned1.txt > hrefCleaned2.txt
 	rm hrefCleaned1.txt
 	
@@ -44,19 +38,33 @@ analyseLinks() {
 		set -- $p
 		echo $1
 	done < hrefCleaned2.txt >> hrefCleaned3.txt
-	
-	
 	grep -o "http.*[^\'\"]" < hrefCleaned3.txt > links.txt
 	rm hrefCleaned3.txt
 	
 	sort -u links.txt > uniqueLinks.txt
-	grep $DOMAIN < uniqueLinks.txt > sameDomain.txt
-	
-	cat sameDomain.txt > linksMasterListUnsorted.txt
-	sort -u linksMasterListUnsorted.txt > linksMasterListSorted.txt
+
+	touch sameDomain.txt
+	while read url; do
+
+		URL=$( echo $url )
+		extractDomain
+		set -- $( head -1 temp1 )
+		THISDOMAIN=$( echo $1 )
+		rm temp1 temp2
+		
+		if [ "$( echo $DOMAIN )" == "$( echo $THISDOMAIN )" ]; then
+			echo $URL >> sameDomain.txt
+		fi
+
+	done < uniqueLinks.txt
+	# grep $DOMAIN < uniqueLinks.txt > sameDomain.txt # Not good enough
+	sort -u sameDomain.txt > linksMasterListSorted.txt
+	rm sameDomain.txt
 }
 
 downloadChildren() {
+
+	touch visitedLinks.txt
 
 	for i in $(seq 1 $LEVEL); do
 	
@@ -72,12 +80,12 @@ downloadChildren() {
 			while read url; do
 			
 				URL=`echo $url`
-				if [ $( grep ^$URL$ < visitedLinks.txt ) = "" ]; then
+				if [ "$( grep ^$URL$ < visitedLinks.txt )" == "" ]; then
 					ITERATION=`expr $ITERATION + 1`
 					downloadPage
+					echo $URL >> visitedLinks.txt
 				fi
-				echo $URL >> visitedLinks.txt
-				
+
 			done < linksMasterListSorted.txt
 			
 		done
@@ -87,22 +95,27 @@ downloadChildren() {
 
 downloadPage() {
 
-	curl $URL > ${DOMAIN}_${CHILD}_${ITERATION}.html
+	curl -sS $URL > ${DOMAIN}_${CHILD}_${ITERATION}.html
 
 }
 
-downloadIndex() {
+extractDomain() {
+
 	touch temp1
-	# Extract domain name
 	echo $URL > temp1
 	HTTP="http.\/\/"
 	sed 's/'${HTTP}'//' temp1 > temp2
 	sed 's/\./ /' temp2 > temp1
+
+}
+
+downloadIndex() {
+
+	extractDomain
 	set -- $( head -1 temp1 )
 	DOMAIN=$( echo $1 ) # Define domain for analysis
 	rm temp1 temp2
-
-	curl $URL > ${DOMAIN}_0_0.html
+	curl -sS $URL > ${DOMAIN}_0_0.html
 
 }
 
