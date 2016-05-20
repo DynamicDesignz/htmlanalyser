@@ -1,49 +1,38 @@
 :
 
 init() {
-	[ ! -d analysis ] && mkdir analysis
-	cd analysis
-	[ `ls -l | wc -l` > 0 ] && rm *
-	cd ..
-	[ ! -d downloads ] && mkdir downloads
-	cd downloads
-	[ `ls -l | wc -l` > 0 ] && rm *
 
-	cd ..
+	[ -d analysis ] && rm -rf analysis
+	mkdir analysis
+	[ -d downloads ] && rm -rf downloads
+	mkdir downloads
+
 }
 
 remove() {
-  cd downloads
-  rm *
+
+  	[ -d downloads ] && rm -rf downloads
+	mkdir downloads
+
 }
 
 analyseLinks() {
 
-	sed 's/'\>\<'/\>\'$'\n\</g' $FILENAME > cleaned.html # Seperate tags in poorly compiled html code
-	grep '<a' cleaned.html > anchor.txt
-	
-	grep -o "href='h.*'" < anchor.txt > href.txt 
-	grep -o 'href="h.*"' < anchor.txt >> href.txt # Two ways of inserting a link
-	
-	touch hrefCleaned1.txt
-	while read p; do
-		set -- $p
-		echo $1
-	done < href.txt >> hrefCleaned1.txt
-	sed 's/>/ /g' hrefCleaned1.txt > hrefCleaned2.txt
-	rm hrefCleaned1.txt
-	
-	touch hrefCleaned3.txt
-	while read p; do
-		set -- $p
-		echo $1
-	done < hrefCleaned2.txt >> hrefCleaned3.txt
-	grep -o "http.*[^\'\"]" < hrefCleaned3.txt > links.txt
-	rm hrefCleaned3.txt
-	
+	grep '<a' $FILENAME > anchor.txt
+	grep -o 'href= h.*$' anchor.txt > href.txt # Two ways of inserting a link
+
+	touch links.txt
+
+	while read line; do
+		set -- $( echo $line )
+		echo $2 >> links.txt 
+	done < href.txt
+
 	sort -u links.txt > uniqueLinks.txt
+	rm links.txt
 
 	touch sameDomain.txt
+
 	while read url; do
 
 		URL=$( echo $url )
@@ -57,30 +46,35 @@ analyseLinks() {
 		fi
 
 	done < uniqueLinks.txt
+	rm uniqueLinks.txt
 	sort -u sameDomain.txt > linksMasterListSorted.txt
 	rm sameDomain.txt
-	
+
 }
 
 downloadChildren() {
 
-	for i in $(seq 1 $LEVEL); do
-	
-		CHILD=`echo $i` # Depth of download
-		PARENT=`expr $CHILD - 1` # Depth of analysis
+	for j in $(seq 1 $LEVEL); do
+		
+		CHILD=$( echo $j ) # Depth of download
+		PARENT=$( expr $CHILD - 1 ) # Depth of analysis
 		ITERATION=0
 		
-		for j in $DOMAIN_$PARENT_*.html;  do
+		for k in ${DOMAIN}_${PARENT}_?.html;  do
 			
-			FILENAME=`echo $j`
+			FILENAME=$( echo $k )
 			analyseLinks
 			
 			while read url; do
 			
-				URL=`echo $url`
+				URL=$( echo $url )
+
 				if [ "$( grep ^$URL$ < visitedLinks.txt )" == "" ]; then
-					ITERATION=`expr $ITERATION + 1`
+					
+					ITERATION=$( expr $ITERATION + 1 ) 
+					
 					downloadPage
+
 				fi
 
 			done < linksMasterListSorted.txt
@@ -93,8 +87,10 @@ downloadChildren() {
 downloadPage() {
 
 	curl -sS $URL > temp1
-	sed 's/'\''/"/g' temp1 > temp2
-	tr '[A-Z]' '[a-z]' < temp2 > ${DOMAIN}_${CHILD}_${ITERATION}.html
+	sed 's/'\''/ /g' temp1 > temp2
+	sed 's/'\"'/ /g' temp2 > temp1
+	tr '[A-Z]' '[a-z]' < temp1 > temp2
+	sed 's/'\>\<'/\>\'$'\n\</g' temp2 > ${DOMAIN}_${CHILD}_${ITERATION}.html
 	echo $URL >> visitedLinks.txt
 	rm temp1 temp2
 	
@@ -104,20 +100,21 @@ extractDomain() { # $1 of set -- $( head -1 temp1) is domain name
 
 	touch temp1
 	echo $URL > temp1
-	HTTP="http.\/\/"
-	sed 's/'${HTTP}w*'//' temp1 > temp2
+	HTTP="http.\/\/w*"
+	sed 's/'${HTTP}'//' temp1 > temp2
 	sed 's/'[.]'/ /g' temp2 > temp1
 
 }
 
 downloadIndex() {
 
-	curl -sS $URL > temp
-	sed 's/'\''/"/g' temp1 > temp2
-	tr '[A-Z]' '[a-z]' < temp2 > ${DOMAIN}_0_0.html
-	sed 's/'\>\<'/\>\'$'\n\</g' ${DOMAIN}_0_0.html > cleaned.html # Seperate tags in poorly compiled html code
+	curl -sS $URL > temp1
+	sed 's/'\''/ /g' temp1 > temp2
+	sed 's/'\"'/ /g' temp2 > temp1
+	tr '[A-Z]' '[a-z]' < temp1 > temp2
+	sed 's/'\>\<'/\>\'$'\n\</g' temp2 > ${DOMAIN}_0_0.html # Seperate tags in poorly compiled html code
 	touch visitedLinks.txt
-	echo $URL >> visitedLinks.txt
+	echo ${URL}/ >> visitedLinks.txt
 	
 }
 
@@ -147,31 +144,27 @@ downloadManager() {
 		
 	done
 	
-	rm urlArguments
-	
 }
 
 findGenerator() { # If GENERATOR = 1 then generator exists and use CONTENT
 
-	grep "name='generator'" < cleaned.html > temp1
-	grep 'name="generator"' < cleaned.html > temp2
-	GENERATOR=$( temp1 | wc -l )
-	[ $GENERATOR -eq 0 ] && GENERATOR=$( temp2 | wc -l )
-	[ $GENERATOR -eq 1 ] && CONTENT=$( sed 's/.*content="\(*\)".*/\1/' )
-	[ $( echo $CONTENT | wc -w) -gt 0 ] && CONTENT=$( sed "s/.*content='\(*\)'.*/\1/" )
+	grep "name= generator" < $FILENAME > temp1
+	GENERATOR=$( grep "name= generator" | wc -l )
+	[ $GENERATOR -eq 1 ] && CONTENT=$( set --$( grep -o 'content=.*' $FILENAME ) | echo $2 )
+	# [ $( echo $CONTENT | wc -w) -gt 0 ] && CONTENT=$( sed "s/.*content='\(*\)'.*/\1/" )
 	rm temp1 temp2
 	
 }
 
 findGoogleAnalytics() { # If GOOGLEANALYTICS = 1 then google-analytics exists
 
-	[ $( grep "https://www.google-analytics.com/urchin.js" < cleaned.html | wc -l ) -gt 0] && GOOGLEANALYTICS=1
+	[ $( grep "https://www.google-analytics.com/urchin.js" < $FILENAME | wc -l ) -gt 0] && GOOGLEANALYTICS=1
 	
 }
 
 findScripts() { # SCRIPTS indicates number of script tags
 
-	[ $( grep '^<script.*>$' < cleaned.html | wc -l) -gt 0 ] && SCRIPTS=$( grep '^<script.*>$' < cleaned.html | wc -l)
+	[ $( grep '^<script.*>$' < $FILENAME | wc -l) -gt 0 ] && SCRIPTS=$( grep '^<script.*>$' < $FILENAME | wc -l)
 
 }
 
@@ -187,11 +180,9 @@ analyseHeader() {
 	
 	while read page; do
 	
-		sed 's/'\>\<'/\>\'$'\n\</g' $page > cleaned.html # Seperate tags in poorly compiled html code
 		findGenerator
 		findGoogleAnalytics
 		findScripts
-		
 		
 	done < pagesToAnalyse
 	
