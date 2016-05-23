@@ -162,10 +162,25 @@ findGoogleAnalytics() { # If GOOGLEANALYTICS = 1 then google-analytics exists
 	
 }
 
+findExternalScripts() {
+
+	EXTERNALSCRIPTCOUNT = $( grep 'src' SCRIPTS | wc -l )
+
+}
+
+findInternalScripts() {
+
+	INTERNALSCRIPTCOUNT = $( grep -v '<script.*src.*>' SCRIPTS | grep '<script' )
+
+}
+
 findScripts() { # SCRIPTS indicates number of script tags
 
-	[ $( grep '^<script.*>$' < $FILENAME | wc -l) -gt 0 ] && SCRIPTS=$( grep '^<script.*>$' < $FILENAME | wc -l)
-
+	if [ $( SCRIPTS = $( grep 'script' < $FILENAME | grep -v '</script>' ) ) -gt 0 ]; then  
+		SCRIPTCOUNT = $( echo SCRIPTS | wc -l )
+ 		findExternalScripts 
+		findInternalScripts
+	fi
 }
 
 
