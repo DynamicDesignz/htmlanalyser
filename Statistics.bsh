@@ -18,8 +18,7 @@ remove() {
 
 analyseLinks() {
 
-	grep '<a' $FILENAME > anchor.txt
-	grep -o 'href= h.*$' anchor.txt > href.txt # Two ways of inserting a link
+	grep '<a' $FILENAME | grep -o 'href= h.*' > href.txt
 
 	touch links.txt
 
@@ -39,13 +38,14 @@ analyseLinks() {
 		extractDomain
 		set -- $( head -1 temp1 )
 		THISDOMAIN=$( echo $1 )
-		rm temp1 temp2
+		rm temp1
 		
 		if [ "$( echo $DOMAIN )" == "$( echo $THISDOMAIN )" ]; then
 			echo $URL >> sameDomain.txt
 		fi
 
 	done < uniqueLinks.txt
+
 	rm uniqueLinks.txt
 	sort -u sameDomain.txt > linksMasterListSorted.txt
 	rm sameDomain.txt
@@ -86,13 +86,8 @@ downloadChildren() {
 
 downloadPage() {
 
-	curl -sS $URL > temp1
-	sed 's/'\''/ /g' temp1 > temp2
-	sed 's/'\"'/ /g' temp2 > temp1
-	tr '[A-Z]' '[a-z]' < temp1 > temp2
-	sed 's/'\>\<'/\>\'$'\n\</g' temp2 > ${DOMAIN}_${CHILD}_${ITERATION}.html
+	curl -sS $URL | sed 's/'\''/ /g' | sed 's/'\"'/ /g' | tr '[A-Z]' '[a-z]' | sed 's/'\>\<'/\>\'$'\n\</g' > ${DOMAIN}_${CHILD}_${ITERATION}.html
 	echo $URL >> visitedLinks.txt
-	rm temp1 temp2
 	
 }
 
@@ -100,19 +95,13 @@ extractDomain() { # $1 of set -- $( head -1 temp1) is domain name
 
 	touch temp1
 	echo $URL > temp1
-	HTTP="http.\/\/w*"
-	sed 's/'${HTTP}'//' temp1 > temp2
-	sed 's/'[.]'/ /g' temp2 > temp1
-
+	HTTP="https\?:\/\/w\{0,3\}"
+	sed 's/'${HTTP}'//' temp1 | sed 's/'[.]'/ /g' > temp1 
 }
 
 downloadIndex() {
 
-	curl -sS $URL > temp1
-	sed 's/'\''/ /g' temp1 > temp2
-	sed 's/'\"'/ /g' temp2 > temp1
-	tr '[A-Z]' '[a-z]' < temp1 > temp2
-	sed 's/'\>\<'/\>\'$'\n\</g' temp2 > ${DOMAIN}_0_0.html # Seperate tags in poorly compiled html code
+	curl -sS $URL | sed 's/'\''/ /g' | sed 's/'\"'/ /g' | tr '[A-Z]' '[a-z]' | sed 's/'\>\<'/\>\'$'\n\</g' > ${DOMAIN}_0_0.html
 	touch visitedLinks.txt
 	echo ${URL}/ >> visitedLinks.txt
 	
@@ -123,7 +112,7 @@ findDomainAndMoveIn() {
 	extractDomain
 	set -- $( head -1 temp1 )
 	DOMAIN=$( echo $1 ) # Define domain for analysis
-	rm temp1 temp2
+	rm temp1
 	[ ! -d "$DOMAIN" ] && mkdir ${DOMAIN}folder
 	cd ${DOMAIN}folder
 	
@@ -152,7 +141,7 @@ findGenerator() { # If GENERATOR = 1 then generator exists and use CONTENT
 	GENERATOR=$( grep "name= generator" | wc -l )
 	[ $GENERATOR -eq 1 ] && CONTENT=$( set --$( grep -o 'content=.*' $FILENAME ) | echo $2 )
 	# [ $( echo $CONTENT | wc -w) -gt 0 ] && CONTENT=$( sed "s/.*content='\(*\)'.*/\1/" )
-	rm temp1 temp2
+	rm temp1
 	
 }
 
@@ -183,6 +172,36 @@ findScripts() { # SCRIPTS indicates number of script tags
 	fi
 }
 
+findExternalCss() {
+
+	EXTERNALCSSCOUNT = $( grep 'stylesheet' $FILENAME | wc -l )
+
+}
+
+findInternalCss() {
+
+	INTERNALCSSCOUNT = $( grep '<style' centralop_0_0.html | wc -l )
+
+}
+
+findInlineCss() {
+
+	INLINECSSCOUNT = $( grep -o 'style=' centralop_0_0.html | wc -l )
+
+}
+
+findMeta() {
+
+	METACOUNT = $( grep '<meta' centralop_0_0.html | wc -l )
+
+}
+
+findIFrame() {
+
+	IFRAMECOUNT = $( grep '<iframe' centralop_0_0.html | wc -l )
+
+}
+
 
 analyseHeader() {
 		
@@ -198,8 +217,29 @@ analyseHeader() {
 		findGenerator
 		findGoogleAnalytics
 		findScripts
+		findExternalCss
+		findInternalCss 
+		findInlineCss
+		findMeta
+		findIFrame
 		
 	done < pagesToAnalyse
+	
+}
+
+analyseTags() {
+
+	grep -o '<[a-z].*>' centralop_0_0.html > tags.txt
+	while read tag; do
+		set -- $tag
+		echo $1 >> tagsUnsorted.txt
+	done < tags.txt 
+	sed 's/[<>]/ /g' tagsUnsorted.txt > tagsSpace.txt
+	while read tag; do
+		set -- $tag
+		echo $1 >> tagsSorted.txt
+	done < tagsSpace.txt
+	sort -u tagsSorted.txt > uniqueTagsSorted.txt
 	
 }
 
@@ -219,16 +259,8 @@ analyseHeader() {
 	# for i in $*; do
 		
 		# URL=$( echo $i )
-		
-		# TAGS=$( head -1 tags )
-		# set -- $TAGS
-		
-		# if [ "$1" == "all" ]; then
-			# analyseHeader
-			# analyseTags
-		# else
-			# analyseTags
-		# fi
+		# analyseHeader
+		# analyseTags
 		
 	# done
 	
