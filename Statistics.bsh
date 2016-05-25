@@ -2,10 +2,12 @@
 
 init() {
 
-	[ -d analysis ] && rm -rf analysis
-	mkdir analysis
 	[ -d downloads ] && rm -rf downloads
 	mkdir downloads
+	cd downloads
+	[ -d analysedPages ] && rm -rf analysedPages
+	mkdir analysedPages
+	cd ..
 
 }
 
@@ -26,6 +28,8 @@ analyseLinks() {
 		set -- $( echo $line )
 		echo $2 >> links.txt 
 	done < href.txt
+
+	rm href.txt
 
 	sort -u links.txt > uniqueLinks.txt
 	rm links.txt
@@ -80,6 +84,8 @@ downloadChildren() {
 			done < linksMasterListSorted.txt
 			
 		done
+
+		rm linksMasterListSorted.txt
 		
 	done
 }
@@ -88,15 +94,16 @@ downloadPage() {
 
 	curl -sS $URL | sed 's/'\''/ /g' | sed 's/'\"'/ /g' | tr '[A-Z]' '[a-z]' | sed 's/'\>\<'/\>\'$'\n\</g' > ${DOMAIN}_${CHILD}_${ITERATION}.html
 	echo $URL >> visitedLinks.txt
-	
+	echo $URL >> ${DOMAIN}_${CHILD}_${ITERATION}.html # Stash the url here to facilitate analysis
+
 }
 
 extractDomain() { # $1 of set -- $( head -1 temp1) is domain name
 
 	touch temp1
 	echo $URL > temp1
-	HTTP="https\?:\/\/w\{0,3\}"
-	sed 's/'${HTTP}'//' temp1 | sed 's/'[.]'/ /g' > temp1 
+	sed 's/https\?:\/\/w\{0,3\}//' temp1 | sed 's/[.]/ /g' > temp1 
+
 }
 
 downloadIndex() {
@@ -104,6 +111,7 @@ downloadIndex() {
 	curl -sS $URL | sed 's/'\''/ /g' | sed 's/'\"'/ /g' | tr '[A-Z]' '[a-z]' | sed 's/'\>\<'/\>\'$'\n\</g' > ${DOMAIN}_0_0.html
 	touch visitedLinks.txt
 	echo ${URL}/ >> visitedLinks.txt
+	echo $URL  >> ${DOMAIN}_0_0.html
 	
 }
 
@@ -113,7 +121,7 @@ findDomainAndMoveIn() {
 	set -- $( head -1 temp1 )
 	DOMAIN=$( echo $1 ) # Define domain for analysis
 	rm temp1
-	[ ! -d "$DOMAIN" ] && mkdir ${DOMAIN}folder
+	[ ! -d ${DOMAIN}folder ] && mkdir ${DOMAIN}folder
 	cd ${DOMAIN}folder
 	
 }
@@ -132,150 +140,247 @@ downloadManager() {
 		cd ..
 		
 	done
+
+	cd ..
 	
 }
 
 findGenerator() { # If GENERATOR = 1 then generator exists and use CONTENT
 
 	grep "name= generator" < $FILENAME > temp1
-	GENERATOR=$( grep "name= generator" | wc -l )
-	[ $GENERATOR -eq 1 ] && CONTENT=$( set --$( grep -o 'content=.*' $FILENAME ) | echo $2 )
+	GENERATOR=$( grep "name= generator" temp1 | wc -l )
+	[ "$GENERATOR" -eq "1" ] && echo "<li>Generator used is $( set --$( grep -o 'content=.*' temp1 ) | echo $2 )</li>" >> ${FILEANALYSED}.txt
+	[ "$GENERATOR" -eq "1" ] || echo "<li>No generator used</li>" >> ${FILEANALYSED}.txt
 	# [ $( echo $CONTENT | wc -w) -gt 0 ] && CONTENT=$( sed "s/.*content='\(*\)'.*/\1/" )
 	rm temp1
-	
 }
 
-findGoogleAnalytics() { # If GOOGLEANALYTICS = 1 then google-analytics exists
+findGoogleAnalytics() {
 
-	[ $( grep "https://www.google-analytics.com/urchin.js" < $FILENAME | wc -l ) -gt 0] && GOOGLEANALYTICS=1
-	
+	if [ $( grep "https://www.google-analytics.com/urchin.js" < $FILENAME | wc -l ) -gt 0 ]; then 
+		echo "<li>Google analytics used</li>" >> ${FILEANALYSED}.txt
+	else
+		echo "<li>Google analytics is not used</li>" >> ${FILEANALYSED}.txt
+	fi
+
 }
 
 findExternalScripts() {
 
-	EXTERNALSCRIPTCOUNT = $( grep 'src' SCRIPTS | wc -l )
-
+	EXTERNALSCRIPTCOUNT=0
+	EXTERNALSCRIPTCOUNT=$( grep 'src' < SCRIPTS | wc -l )
+	echo "<li>Refers $EXTERNALSCRIPTCOUNT external script(s)</li>" >> ${FILEANALYSED}.txt
 }
 
 findInternalScripts() {
 
-	INTERNALSCRIPTCOUNT = $( grep -v '<script.*src.*>' SCRIPTS | grep '<script' )
+	INTERNALSCRIPTCOUNT=0
+	INTERNALSCRIPTCOUNT=$( grep -v '<script.*src.*>' < SCRIPTS | grep '<script' | wc -l )
+	echo "<li>Defines $INTERNALSCRIPTCOUNT internal script(s)</li>" >> ${FILEANALYSED}.txt
 
 }
 
-findScripts() { # SCRIPTS indicates number of script tags
+findScripts() {
 
-	if [ $( SCRIPTS = $( grep 'script' < $FILENAME | grep -v '</script>' ) ) -gt 0 ]; then  
-		SCRIPTCOUNT = $( echo SCRIPTS | wc -l )
+	SCRIPTCOUNT=0
+	SCRIPTCOUNT=$( grep 'script' < $FILENAME | grep -v '</script>' | wc -l )
+
+	if [ $SCRIPTCOUNT -gt 0 ]; then  
+		touch SCRIPTS
+		echo $( grep 'script' < $FILENAME | grep -v '</script>' ) > SCRIPTS
+		echo "<li>Defines $SCRIPTCOUNT script(s)</li>" >> ${FILEANALYSED}.txt
  		findExternalScripts 
 		findInternalScripts
+		rm SCRIPTS
+	else
+		echo "<li>No scripts defined</li>" >> ${FILEANALYSED}.txt
 	fi
+	
 }
 
 findExternalCss() {
 
-	EXTERNALCSSCOUNT = $( grep 'stylesheet' $FILENAME | wc -l )
+	EXTERNALCSSCOUNT=0
+	EXTERNALCSSCOUNT=$( grep 'stylesheet' $FILENAME | wc -l )
+	echo "<li>Refers $EXTERNALCSSCOUNT external css file(s)</li>" >> ${FILEANALYSED}.txt
 
 }
 
 findInternalCss() {
 
-	INTERNALCSSCOUNT = $( grep '<style' centralop_0_0.html | wc -l )
+	STYLECOUNT=0
+	STYLECOUNT=$( grep '<style>.*<\/style>\+' $FILENAME > temp1 | wc -l )
+	echo "<li>Defines $STYLECOUNT style rules</li>" >> ${FILEANALYSED}.txt
+	# INTERNALCSSCOUNT=$( sed 's/{.*}/\1/g' temp1 | wc -l )
+	# echo "<li>Defines $INTERNALCSSCOUNT CSS</li>" >> ${FILEANALYSED}.txt
 
-}
+}	
 
 findInlineCss() {
 
-	INLINECSSCOUNT = $( grep -o 'style=' centralop_0_0.html | wc -l )
+	INLINECSSCOUNT=0
+	INLINECSSCOUNT=$( grep -o 'style=' $FILENAME | wc -l )
+	echo "<li>Defines $INLINECSSCOUNT inline CSS rule(s)</li>" >> ${FILEANALYSED}.txt
 
 }
 
 findMeta() {
 
-	METACOUNT = $( grep '<meta' centralop_0_0.html | wc -l )
+	METACOUNT=0
+	METACOUNT=$( grep '<meta' $FILENAME | wc -l )
+	echo "<li>Defines $METACOUNT metadata</li>" >> ${FILEANALYSED}.txt
 
 }
 
 findIFrame() {
 
-	IFRAMECOUNT = $( grep '<iframe' centralop_0_0.html | wc -l )
+	IFRAMECOUNT=0
+	IFRAMECOUNT=$( grep '<iframe' $FILENAME | wc -l )
+	echo "<li>Defines $IFRAMECOUNT iframe(s)</li>" >> ${FILEANALYSED}.txt
 
 }
 
+countTags() {
 
-analyseHeader() {
-		
-	cd ..
-	cd downloads
-	findDomainAndMoveIn
+	while read tag; do
+		TAGTOANALYSE=$( echo $tag )
+		countSpecificTag
+	done < uniqueTagsSorted.txt
+
+}
+
+getTags() {
+
+	while read tag; do
+		set -- $tag
+		echo $1 >> tagsUnsorted
+	done < $( grep -o '<[a-z].*>' $FILENAME )
+
+	sed 's/</ /g' | sed 's/>/ /g' > tagsSpace
+
+	while read tag; do
+		set -- $tag
+		echo $1 >> tagsSorted
+	done < tagsSpace
+
+	sort -u tagsSorted | cut -c2- > uniqueTagsSorted.txt
+
+	countTags
 	
-	# Analyse all downloaded files in folder
-	ls ${DOMAIN}* > pagesToAnalyse
-	
-	while read page; do
-	
-		findGenerator
-		findGoogleAnalytics
-		findScripts
-		findExternalCss
-		findInternalCss 
-		findInlineCss
-		findMeta
-		findIFrame
-		
-	done < pagesToAnalyse
-	
+}
+
+countSpecificTag() {
+
+	OPENINGTAG=$( grep "<$TAGTOANALYSE" $FILENAME | wc -l )
+	ClOSINGTAG=$( grep "$TAGTOANALYSE>" $FILENAME | wc -l )
+	EMPTYTAG=$( grep "<$TAGTOANALYSE *\/ *>" $FILENAME | wc -l )
+	HTMLROW=$( echo "<tr><td>${OPENINGTAG}</td><td>${ClOSINGTAG}</td><td>${EMPTYTAG}</td></tr>" )
+	echo $HTMLROW >> ${FILEANALYSED}.txt
+
 }
 
 analyseTags() {
 
-	grep -o '<[a-z].*>' centralop_0_0.html > tags.txt
-	while read tag; do
-		set -- $tag
-		echo $1 >> tagsUnsorted.txt
-	done < tags.txt 
-	sed 's/[<>]/ /g' tagsUnsorted.txt > tagsSpace.txt
-	while read tag; do
-		set -- $tag
-		echo $1 >> tagsSorted.txt
-	done < tagsSpace.txt
-	sort -u tagsSorted.txt > uniqueTagsSorted.txt
+	set -- $( head -1 tags )
+
+	for i in $*; do
+		TAGTOANALYSE=$( echo $i )
+		countSpecificTag
+	done
 	
 }
 
-# analyseTags() {
+analyse() {
 
-	# set -- $TAGS
-	# for i in $*; do
-		# # Analyse à faire
-	# done
-	
-# }
+	URLS=$( head -1 urlArguments )
+	set -- $URLS
+	TAGS=$( head -1 tags )
 
-# analyse() 
+	for i in $*; do
 
-	# set -- $URLS
-	
-	# for i in $*; do
+		URL=$( echo $i )	
+		findDomainAndMoveIn # Found by interpreting current $URL
 		
-		# URL=$( echo $i )
-		# analyseHeader
-		# analyseTags
-		
-	# done
+		# Analyse all downloaded files in folder
+		ls ${DOMAIN}* > pagesToAnalyse
+		sed 's/\(.*\)\.html/\1/' pagesToAnalyse > pagesToCreate
+
+		LINENUMBER=1
+		while read page; do
+			
+			FILENAME=$( echo $page )
+			sed "${LINENUMBER}q;d" pagesToCreate > line
+			FILEANALYSED=$( head -1 line )
+			rm line
+			touch ${FILEANALYSED}.txt
+			HTMLURL=$( echo $( tail -1 < $page ) )
+			echo '<h2><a href=\"$HTMLURL\">$HTMLURL</a></h2>' >> ${FILEANALYSED}.txt
+			echo "<ul>" >>	${FILEANALYSED}.txt
+
+			findGenerator
+			findGoogleAnalytics
+			findScripts
+			findExternalCss
+			findInternalCss 
+			findInlineCss
+			findMeta
+			findIFrame
+
+			echo "</ul>" >> ${FILEANALYSED}.txt
+
+			echo "<table>" >> ${FILEANALYSED}.txt
+			echo "<thead>" >> ${FILEANALYSED}.txt
+			echo "<tr><th>tag</th><th>open count</th><th>empty count</th></tr>" >> ${FILEANALYSED}.txt
+			echo "</thead>" >> ${FILEANALYSED}.txt
+			echo "<tbody>" >> ${FILEANALYSED}.txt
+
+			# if [ set -- $TAGS | "$( echo $1 )"=="all" ]; then
+			# 	getTags
+			# else
+			# 	analyseTags
+			# fi
+
+			echo "</tbody>" >> ${FILEANALYSED}.txt
+			echo "</table>" >> ${FILEANALYSED}.txt
+
+			mv ${FILEANALYSED}.txt ../analysedPages
+
+			LINENUMBER=$( expr $LINENUMBER + 1 )
+
+		done < pagesToAnalyse
+
+		cd ..
+
+	done
+
+	cd ..
 	
-# }
+}
 
-# create() {
 
-# }
+create() {
+
+	cd downloads/analysedPages
+	touch index.html
+
+	echo "<!doctype html><html><head><meta charset='utf8' /><title>Web Page Analysis</title></head>" >> index.html
+	echo "<body>" >> index.html
+	echo "<h1>Statistics</h1>" >> index.html
+
+	for i in $.txt; do
+		FILENAME=$( echo $i )
+		cat $FILENAME >> index.html
+	done
+
+	mv index.html ../../
+
+}
 
 
 case $1 in
 -z) init;;
 -c) remove;;
 -[0-9]) LEVEL=$( echo $1 | tail -c 2 ); shift; cd downloads; touch urlArguments; echo $* > urlArguments; downloadManager;;
--a) shift; cd analysis; touch tags; echo $* > tags; analyse;;
+-a) shift; cd downloads; touch tags; echo $* > tags; analyse;;
 -h) create;;
--l) analyseLinks;;
 esac
