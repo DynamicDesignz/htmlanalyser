@@ -13,8 +13,7 @@ init() {
 
 remove() {
 
-  	[ -d downloads ] && rm -rf downloads
-	mkdir downloads
+  	init
 
 }
 
@@ -71,9 +70,9 @@ downloadChildren() {
 			
 			while read url; do
 			
-				URL=$( echo $url )
+				URLCHILD=$( echo $url )
 
-				if [ "$( grep ^$URL$ < visitedLinks.txt )" == "" ]; then
+				if [ "$( grep ^$URLCHILD$ < visitedLinks.txt )" == "" ]; then
 					
 					ITERATION=$( expr $ITERATION + 1 ) 
 					
@@ -92,17 +91,19 @@ downloadChildren() {
 
 downloadPage() {
 
-	curl -sS $URL | sed 's/'\''/ /g' | sed 's/'\"'/ /g' | tr '[A-Z]' '[a-z]' | sed 's/'\>\<'/\>\'$'\n\</g' > ${DOMAIN}_${CHILD}_${ITERATION}.html
-	echo $URL >> visitedLinks.txt
-	echo $URL >> ${DOMAIN}_${CHILD}_${ITERATION}.html # Stash the url here to facilitate analysis
+	curl -sS $URLCHILD | sed 's/'\''/ /g' | sed 's/'\"'/ /g' | tr '[A-Z]' '[a-z]' | sed 's/'\>\<'/\>\'$'\n\</g' > ${DOMAIN}_${CHILD}_${ITERATION}.html
+	echo $URLCHILD >> visitedLinks.txt
+	echo $URLCHILD >> ${DOMAIN}_${CHILD}_${ITERATION}.html # Stash the url here to facilitate analysis
 
 }
 
-extractDomain() { # $1 of set -- $( head -1 temp1) is domain name
+extractDomain() { # $1 of set -- $( head -1 temp1 ) is domain name
 
 	touch temp1
 	echo $URL > temp1
-	sed 's/https\?:\/\/w\{0,3\}//' temp1 | sed 's/[.]/ /g' > temp1 
+	sed 's/http[s]\?:\/\/[w]\{0,3\}//g' temp1 > temp2
+	sed 's/\./ /g' temp2 > temp1
+	rm temp2
 
 }
 
@@ -138,18 +139,18 @@ downloadManager() {
 		downloadIndex
 		[ $LEVEL -gt 0 ] && downloadChildren
 		cd ..
-		
+
 	done
 
 	cd ..
 	
-}
+}	
 
 findGenerator() { # If GENERATOR = 1 then generator exists and use CONTENT
 
 	grep "name= generator" < $FILENAME > temp1
 	GENERATOR=$( grep "name= generator" temp1 | wc -l )
-	[ "$GENERATOR" -eq "1" ] && echo "<li>Generator used is $( set --$( grep -o 'content=.*' temp1 ) | echo $2 )</li>" >> ${FILEANALYSED}.txt
+	[ "$GENERATOR" -eq "1" ] && echo "<li>Generator used is $( set -- $( grep -o 'content=.*' temp1 ) | echo $2 )</li>" >> ${FILEANALYSED}.txt
 	[ "$GENERATOR" -eq "1" ] || echo "<li>No generator used</li>" >> ${FILEANALYSED}.txt
 	# [ $( echo $CONTENT | wc -w) -gt 0 ] && CONTENT=$( sed "s/.*content='\(*\)'.*/\1/" )
 	rm temp1
@@ -175,7 +176,7 @@ findExternalScripts() {
 findInternalScripts() {
 
 	INTERNALSCRIPTCOUNT=0
-	INTERNALSCRIPTCOUNT=$( grep -v '<script.*src.*>' < SCRIPTS | grep '<script' | wc -l )
+	INTERNALSCRIPTCOUNT=$( grep -v '<script.*src.*>' < SCRIPTS | wc -l )
 	echo "<li>Defines $INTERNALSCRIPTCOUNT internal script(s)</li>" >> ${FILEANALYSED}.txt
 
 }
@@ -183,7 +184,7 @@ findInternalScripts() {
 findScripts() {
 
 	SCRIPTCOUNT=0
-	SCRIPTCOUNT=$( grep 'script' < $FILENAME | grep -v '</script>' | wc -l )
+	SCRIPTCOUNT=$( grep '<script' < $FILENAME | wc -l )
 
 	if [ $SCRIPTCOUNT -gt 0 ]; then  
 		touch SCRIPTS
@@ -206,13 +207,20 @@ findExternalCss() {
 
 }
 
-findInternalCss() {
+findStyle() {
 
 	STYLECOUNT=0
-	STYLECOUNT=$( grep '<style>.*<\/style>\+' $FILENAME > temp1 | wc -l )
+	STYLECOUNT=$( grep '<style.*>' $FILENAME | wc -l )
 	echo "<li>Defines $STYLECOUNT style rules</li>" >> ${FILEANALYSED}.txt
-	# INTERNALCSSCOUNT=$( sed 's/{.*}/\1/g' temp1 | wc -l )
-	# echo "<li>Defines $INTERNALCSSCOUNT CSS</li>" >> ${FILEANALYSED}.txt
+
+}
+
+findInternalCss() {
+
+	INTERNALCSSCOUNT=0
+	INTERNALCSSCOUNT=$( tr "\n" "|" < $FILENAME | grep -o '<style>.*</style>' | sed 's/\(<style>\|<\/style>\)//g' | sed 's/|/\n/g' | wc -l
+)
+	echo "<li>Defines $INTERNALCSSCOUNT internal CSS(s)</li>" >> ${FILEANALYSED}.txt
 
 }	
 
@@ -236,7 +244,7 @@ findIFrame() {
 
 	IFRAMECOUNT=0
 	IFRAMECOUNT=$( grep '<iframe' $FILENAME | wc -l )
-	echo "<li>Defines $IFRAMECOUNT iframe(s)</li>" >> ${FILEANALYSED}.txt
+	echo "<li>Uses $IFRAMECOUNT iframe(s)</li>" >> ${FILEANALYSED}.txt
 
 }
 
@@ -251,19 +259,23 @@ countTags() {
 
 getTags() {
 
+	grep -o '<[a-z].*>' $FILENAME > tagscraper
+
 	while read tag; do
 		set -- $tag
 		echo $1 >> tagsUnsorted
-	done < $( grep -o '<[a-z].*>' $FILENAME )
+	done < tagscraper
 
-	sed 's/</ /g' | sed 's/>/ /g' > tagsSpace
+	sed 's/</ /g' tagsUnsorted | sed 's/>/ /g' > tagsSpace.txt
+	rm tagsUnsorted
 
 	while read tag; do
 		set -- $tag
-		echo $1 >> tagsSorted
-	done < tagsSpace
+		echo $1 >> tagsSorted.txt
+	done < tagsSpace.txt
 
-	sort -u tagsSorted | cut -c2- > uniqueTagsSorted.txt
+	sort -u TagsSorted.txt > uniqueTagsSorted.txt
+	rm tagsSorted.txt
 
 	countTags
 	
@@ -271,10 +283,10 @@ getTags() {
 
 countSpecificTag() {
 
-	OPENINGTAG=$( grep "<$TAGTOANALYSE" $FILENAME | wc -l )
-	ClOSINGTAG=$( grep "$TAGTOANALYSE>" $FILENAME | wc -l )
-	EMPTYTAG=$( grep "<$TAGTOANALYSE *\/ *>" $FILENAME | wc -l )
-	HTMLROW=$( echo "<tr><td>${OPENINGTAG}</td><td>${ClOSINGTAG}</td><td>${EMPTYTAG}</td></tr>" )
+	OPENINGTAG=$( grep "<${TAGTOANALYSE}" $FILENAME | wc -l )
+	ClOSINGTAG=$( grep "/${TAGTOANALYSE}>" $FILENAME | wc -l )
+	EMPTYTAG=$( grep "<${TAGTOANALYSE} *\/ *>" $FILENAME | wc -l )
+	HTMLROW="<tr style='border: 1px solid black'><td style='border: 1px solid black'>${TAGTOANALYSE}</td><td style='border: 1px solid black'>${OPENINGTAG}</td><td style='border: 1px solid black'>${ClOSINGTAG}</td><td style='border: 1px solid black'>${EMPTYTAG}</td></tr>"
 	echo $HTMLROW >> ${FILEANALYSED}.txt
 
 }
@@ -290,11 +302,20 @@ analyseTags() {
 	
 }
 
+tableHead() {
+
+	echo "<table style='border: 1px solid black;'>" >> ${FILEANALYSED}.txt
+	echo "<thead style='border: 1px solid black>" >> ${FILEANALYSED}.txt
+	echo "<tr style='border: 1px solid black'><th style='border: 1px solid black'>tag</th><th style='border: 1px solid black'>open count</th><th style='border: 1px solid black'>closed count</th><th style='border: 1px solid black'>empty count</th></tr>" >> ${FILEANALYSED}.txt
+	echo "</thead>" >> ${FILEANALYSED}.txt
+	echo "<tbody>" >> ${FILEANALYSED}.txt
+
+}
+
 analyse() {
 
 	URLS=$( head -1 urlArguments )
 	set -- $URLS
-	TAGS=$( head -1 tags )
 
 	for i in $*; do
 
@@ -314,31 +335,43 @@ analyse() {
 			rm line
 			touch ${FILEANALYSED}.txt
 			HTMLURL=$( echo $( tail -1 < $page ) )
-			echo '<h2><a href=\"$HTMLURL\">$HTMLURL</a></h2>' >> ${FILEANALYSED}.txt
+
+			TITLEBEGIN='<h2><a href="'
+			TITLEBEGIN+=$HTMLURL
+			TITLEBEGIN+='">'
+			TITLEBEGIN+=$HTMLURL
+			TITLEBEGIN+='</a></h2>'
+
+			echo $TITLEBEGIN >> ${FILEANALYSED}.txt
 			echo "<ul>" >>	${FILEANALYSED}.txt
 
 			findGenerator
 			findGoogleAnalytics
 			findScripts
+			findStyle
 			findExternalCss
-			findInternalCss 
+			findInternalCss
 			findInlineCss
 			findMeta
 			findIFrame
 
 			echo "</ul>" >> ${FILEANALYSED}.txt
+			
+			cd ..
+			cp tags ${DOMAIN}folder
+			cd ${DOMAIN}folder
 
-			echo "<table>" >> ${FILEANALYSED}.txt
-			echo "<thead>" >> ${FILEANALYSED}.txt
-			echo "<tr><th>tag</th><th>open count</th><th>empty count</th></tr>" >> ${FILEANALYSED}.txt
-			echo "</thead>" >> ${FILEANALYSED}.txt
-			echo "<tbody>" >> ${FILEANALYSED}.txt
+			TAGS=$( head -1 tags )
+			set -- $TAGS
 
-			# if [ set -- $TAGS | "$( echo $1 )"=="all" ]; then
-			# 	getTags
-			# else
-			# 	analyseTags
-			# fi
+			if [ "$( echo $TAGS )" != "" ]; then 
+				tableHead
+				if [ "$( echo $1 )" == "all" ]; then
+					getTags
+				else
+					analyseTags
+				fi
+			fi
 
 			echo "</tbody>" >> ${FILEANALYSED}.txt
 			echo "</table>" >> ${FILEANALYSED}.txt
@@ -367,10 +400,12 @@ create() {
 	echo "<body>" >> index.html
 	echo "<h1>Statistics</h1>" >> index.html
 
-	for i in $.txt; do
+	for i in *.txt; do
 		FILENAME=$( echo $i )
 		cat $FILENAME >> index.html
 	done
+
+	echo "</body></html>" >> index.html
 
 	mv index.html ../../
 
